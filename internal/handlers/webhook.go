@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"encoding/csv"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/ReNeagu/projeto-whatsapp/internal/db"
@@ -101,4 +103,72 @@ func ListarLeads(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, leads)
+
+}
+
+// GET /painel - renderiza HTML com os leads
+func MostrarPainel(c *gin.Context) {
+	rows, err := db.DB.Query(`SELECT id, phone, name, message, created_at, vendedor FROM leads ORDER BY created_at DESC `)
+	if err != nil {
+		log.Println("Erro ao buscar leads:", err)
+		c.String(http.StatusInternalServerError, "Erro ao buscar os dados")
+		return
+	}
+	defer rows.Close()
+
+	var leads []Lead
+	for rows.Next() {
+		var lead Lead
+		if err := rows.Scan(&lead.ID, &lead.Phone, &lead.Name, &lead.Message, &lead.CreatedAt, &lead.Vendedor); err != nil {
+			log.Println("Erro ao ler linha:", err)
+			continue
+		}
+		leads = append(leads, lead)
+	}
+	//renderiza o template com os leads
+	c.HTML(http.StatusOK, "painel.html", leads)
+}
+
+// ExportarLeadsCSV gera um CSV com todos os leads e força o download
+func ExportarLeadsCSV(c *gin.Context) {
+	rows, err := db.DB.Query(`SELECT id, phone, name, message, created_at, vendedor FROM leads ORDER BY created_at DESC`)
+	if err != nil {
+		log.Println("Erro ao buscar leads para exportação:", err)
+		c.String(http.StatusInternalServerError, "Erro ao buscar dados")
+		return
+	}
+	defer rows.Close()
+
+	// Define headers para forçar download
+	c.Header("Content-Description", "File Transfer")
+	c.Header("Content-Disposition", "attachment; filename=leads.csv")
+	c.Header("Content-Type", "text/csv")
+
+	// Escreve o CSV direto na resposta HTTP
+	writer := csv.NewWriter(c.Writer)
+
+	// Cabeçalho do CSV
+	writer.Write([]string{"ID", "Telefone", "Nome", "Mensagem", "Data", "Vendedor"})
+
+	// Linhas do CSV
+	for rows.Next() {
+		var lead Lead
+		err := rows.Scan(&lead.ID, &lead.Phone, &lead.Name, &lead.Message, &lead.CreatedAt, &lead.Vendedor)
+		if err != nil {
+			log.Println("Erro ao ler linha:", err)
+			continue
+		}
+
+		writer.Write([]string{
+			strconv.Itoa(lead.ID),
+			lead.Phone,
+			lead.Name,
+			lead.Message,
+			lead.CreatedAt.Format("2006-01-02 15:04:05"),
+			lead.Vendedor,
+		})
+	}
+
+	writer.Flush()
+
 }
